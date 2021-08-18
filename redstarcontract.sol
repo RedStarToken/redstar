@@ -1,18 +1,13 @@
-/**
- *Submitted for verification at BscScan.com on 2021-08-16
-*/
-
 // SPDX-License-Identifier: Unlicensed
 
 pragma solidity ^0.8.4;
 
 /**
-    RedMoon
-    10% per transactions tax features:
-    Holders reflection  = 4.5%
-    LP  = 4.5%
-	No burn function / fee
-    Charity wallet = 1%
+    RedStar
+    10% tax per transaction :
+    Holders reflection  = 4%
+    Auto Liquidity = 4%
+    Charity Wallet Tax = 2%
 */
 
 abstract contract Context {
