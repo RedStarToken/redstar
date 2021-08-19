@@ -4,10 +4,9 @@ pragma solidity ^0.8.4;
 
 /**
     RedStar
-    10% tax per transaction :
+    8% per transactions tax features:
     Holders reflection  = 4%
-    Auto Liquidity = 4%
-    Charity Wallet Tax = 2%
+    Charity wallet = 1%
 */
 
 abstract contract Context {
@@ -343,10 +342,9 @@ contract RedStar is Context, IBEP20, Ownable {
     mapping (address => bool) private _isExcludedFromFee;
     mapping (address => bool) private _isExcluded;
     mapping (address => mapping (address => uint256)) private _allowances;
-    mapping (address => bool) public _isExcludedFromAutoLiquidity;
 
     address[] private _excluded;
-    address payable public _charityWallet = payable(0xeE620B10Cc4Cdb1Cf3a1996C6b5B6deF5deE00eA); // Charity Address
+    address payable public _charityWallet = payable(0xb55C34A47A283706E96D2F61dbf55B781690b7E5); // Charity Address
    
     uint256 private constant MAX = ~uint256(0);
     uint256 private _tTotal = 100 * 10**9 * 10**9;
@@ -361,32 +359,16 @@ contract RedStar is Context, IBEP20, Ownable {
  
 
     uint256 public  _taxFee       = 4; // re-distribution tax
-    uint256 public  _liquidityFee = 4; // auto LP
-    uint256 public  _charityFee  = 2; // charity wallet
-   
-    
+    uint256 public  _charityFee  = 4; // charity wallet
     uint256 public  _maxTxAmount     = 5000000 * 10**6 * 10**9;
-    uint256 public _minTokenBalance = 100 * 10**6 * 10**_decimals; //0.1% of the supply
     
-    // auto liquidity
+ 
     IPancakeV2Router02 public pancakeV2Router;
     address            public pancakeV2Pair;
-    bool inSwapAndLiquify;
-    bool public swapAndLiquifyEnabled = true;
     event MinTokensBeforeSwapUpdated(uint256 minTokensBeforeSwap);
-    event SwapAndLiquifyEnabledUpdated(bool enabled);
 	event SwapAndLiquifyStatus(string status);
-    event SwapAndLiquify(
-        uint256 tokensSwapped,
-        uint256 ethReceived,
-        uint256 tokensIntoLiquidity
-    );
-    
-    modifier lockTheSwap {
-        inSwapAndLiquify = true;
-        _;
-        inSwapAndLiquify = false;
-    }
+	event LiquidityAdded(uint256 tokenAmount, uint256 bnbAmount);
+   
     
     constructor () {
 
@@ -403,8 +385,6 @@ contract RedStar is Context, IBEP20, Ownable {
         _isExcludedFromFee[address(this)]   = true;
         _isExcludedFromFee[_charityWallet] = true;
 
-        _isExcludedFromAutoLiquidity[pancakeV2Pair]            = true;
-        _isExcludedFromAutoLiquidity[address(pancakeV2Router)] = true;
         
         emit Transfer(address(0), _msgSender(), _tTotal);
     }
@@ -448,15 +428,15 @@ contract RedStar is Context, IBEP20, Ownable {
 
     function reflectionFromToken(uint256 tAmount, bool deductTransferFee) public view returns(uint256) {
         require(tAmount <= _tTotal, "Amount must be less than supply");
-        (, uint256 tFee, uint256 tLiquidity, uint256 tCharity) = _getTValues(tAmount);
+        (, uint256 tFee, uint256 tCharity) = _getTValues(tAmount);
         uint256 currentRate = _getRate();
 
         if (!deductTransferFee) {
-            (uint256 rAmount,,) = _getRValues(tAmount, tFee, tLiquidity, tCharity, currentRate);
+            (uint256 rAmount,,) = _getRValues(tAmount, tFee, tCharity, currentRate);
             return rAmount;
 
         } else {
-            (, uint256 rTransferAmount,) = _getRValues(tAmount, tFee, tLiquidity, tCharity, currentRate);
+            (, uint256 rTransferAmount,) = _getRValues(tAmount, tFee,tCharity, currentRate);
             return rTransferAmount;
         }
     }
@@ -497,23 +477,19 @@ contract RedStar is Context, IBEP20, Ownable {
         _tFeeTotal = _tFeeTotal.add(tFee);
     }
 
-    function _getTValues(uint256 tAmount) private view returns (uint256, uint256, uint256, uint256) {
+    function _getTValues(uint256 tAmount) private view returns (uint256, uint256, uint256) {
         uint256 tFee       = tAmount.mul(_taxFee).div(100);
-        uint256 tLiquidity = tAmount.mul(_liquidityFee).div(100);
         uint256 tCharity = tAmount.mul(_charityFee).div(100);
         uint256 tTransferAmount = tAmount.sub(tFee);
-        tTransferAmount = tTransferAmount.sub(tLiquidity);
         tTransferAmount = tTransferAmount.sub(tCharity);
-        return (tTransferAmount, tFee, tLiquidity, tCharity);
+        return (tTransferAmount, tFee,tCharity);
     }
 
-    function _getRValues(uint256 tAmount, uint256 tFee, uint256 tLiquidity, uint256 tCharity, uint256 currentRate) private pure returns (uint256, uint256, uint256) {
+    function _getRValues(uint256 tAmount, uint256 tFee, uint256 tCharity, uint256 currentRate) private pure returns (uint256, uint256, uint256) {
         uint256 rAmount    = tAmount.mul(currentRate);
         uint256 rFee       = tFee.mul(currentRate);
-        uint256 rLiquidity = tLiquidity.mul(currentRate);
         uint256 rCharity = tCharity.mul(currentRate);
         uint256 rTransferAmount = rAmount.sub(rFee);
-        rTransferAmount = rTransferAmount.sub(rLiquidity);
         rTransferAmount = rTransferAmount.sub(rCharity);
         return (rAmount, rTransferAmount, rFee);
     }
@@ -576,16 +552,6 @@ contract RedStar is Context, IBEP20, Ownable {
             contractTokenBalance = _maxTxAmount;
         }
         
-        bool isOverMinTokenBalance = contractTokenBalance >= _minTokenBalance;
-        if (
-            isOverMinTokenBalance &&
-            !inSwapAndLiquify &&
-            !_isExcludedFromAutoLiquidity[from] &&
-            swapAndLiquifyEnabled
-        ) {
-            contractTokenBalance = _minTokenBalance;
-            swapAndLiquify(contractTokenBalance);
-        }
 
         
         bool takeFee = true;
@@ -593,25 +559,6 @@ contract RedStar is Context, IBEP20, Ownable {
             takeFee = false;
         }
         _tokenTransfer(from, to, amount, takeFee);
-    }
-
-    function swapAndLiquify(uint256 contractTokenBalance) private lockTheSwap {
-
-        uint256 half      = contractTokenBalance.div(2);
-        uint256 otherHalf = contractTokenBalance.sub(half);
-
-        uint256 initialBalance = address(this).balance;
-
-        
-        swapTokensForBnb(half);
-
-        
-        uint256 newBalance = address(this).balance.sub(initialBalance);
-
-        
-        addLiquidity(otherHalf, newBalance);
-        
-        emit SwapAndLiquify(half, newBalance, otherHalf);
     }
 
     function swapTokensForBnb(uint256 tokenAmount) private returns (bool status){
@@ -635,7 +582,6 @@ contract RedStar is Context, IBEP20, Ownable {
     }
 
     function addLiquidity(uint256 tokenAmount, uint256 bnbAmount) private {
-        _approve(address(this), address(pancakeV2Router), tokenAmount);
         pancakeV2Router.addLiquidityETH{value: bnbAmount}(
             address(this),
             tokenAmount,
@@ -644,16 +590,15 @@ contract RedStar is Context, IBEP20, Ownable {
             owner(),
             block.timestamp
         );
+        emit LiquidityAdded(tokenAmount, bnbAmount);
     }
 
     function _tokenTransfer(address sender, address recipient, uint256 amount,bool takeFee) private {
         uint256 previousTaxFee       = _taxFee;
-        uint256 previousLiquidityFee = _liquidityFee;
         uint256 previousCharityFee  = _charityFee;
 
         if (!takeFee) {
             _taxFee       = 0;
-            _liquidityFee = 0;
             _charityFee  = 0;
         }
         
@@ -672,20 +617,19 @@ contract RedStar is Context, IBEP20, Ownable {
         
         if (!takeFee) {
             _taxFee       = previousTaxFee;
-            _liquidityFee = previousLiquidityFee;
             _charityFee  = previousCharityFee;
         }
     }
 
     function _transferStandard(address sender, address recipient, uint256 tAmount) private {
-        (uint256 tTransferAmount, uint256 tFee, uint256 tLiquidity, uint256 tCharity) = _getTValues(tAmount);
+        (uint256 tTransferAmount, uint256 tFee, uint256 tCharity) = _getTValues(tAmount);
         uint256 currentRate = _getRate();
-        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee) = _getRValues(tAmount, tFee, tLiquidity, tCharity, currentRate);
+        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee) = _getRValues(tAmount, tFee, tCharity, currentRate);
 
         _rOwned[sender]    = _rOwned[sender].sub(rAmount);
         _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);
 
-        takeTransactionFee(address(this), tLiquidity, currentRate);
+       
         takeTransactionFee(address(_charityWallet), tCharity, currentRate);
         _reflectFee(rFee, tFee);
         emit Transfer(sender, recipient, tTransferAmount);
@@ -693,16 +637,16 @@ contract RedStar is Context, IBEP20, Ownable {
     }
 
     function _transferBothExcluded(address sender, address recipient, uint256 tAmount) private {
-        (uint256 tTransferAmount, uint256 tFee, uint256 tLiquidity, uint256 tCharity) = _getTValues(tAmount);
+        (uint256 tTransferAmount, uint256 tFee,uint256 tCharity) = _getTValues(tAmount);
         uint256 currentRate = _getRate();
-        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee) = _getRValues(tAmount, tFee, tLiquidity, tCharity, currentRate);
+        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee) = _getRValues(tAmount, tFee,tCharity, currentRate);
 
         _tOwned[sender] = _tOwned[sender].sub(tAmount);
         _rOwned[sender] = _rOwned[sender].sub(rAmount);
         _tOwned[recipient] = _tOwned[recipient].add(tTransferAmount);
         _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);
 
-        takeTransactionFee(address(this), tLiquidity, currentRate);
+  
         takeTransactionFee(address(_charityWallet), tCharity, currentRate);
         _reflectFee(rFee, tFee);
         emit Transfer(sender, recipient, tTransferAmount);
@@ -710,15 +654,15 @@ contract RedStar is Context, IBEP20, Ownable {
     }
 
     function _transferToExcluded(address sender, address recipient, uint256 tAmount) private {
-        (uint256 tTransferAmount, uint256 tFee, uint256 tLiquidity, uint256 tCharity) = _getTValues(tAmount);
-        uint256 currentRate = _getRate();
-        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee) = _getRValues(tAmount, tFee, tLiquidity, tCharity, currentRate);
+        (uint256 tTransferAmount, uint256 tFee,uint256 tCharity) = _getTValues(tAmount);
+         uint256 currentRate = _getRate();
+        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee) = _getRValues(tAmount, tFee,tCharity, currentRate);
 
         _rOwned[sender] = _rOwned[sender].sub(rAmount);
         _tOwned[recipient] = _tOwned[recipient].add(tTransferAmount);
         _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);
 
-        takeTransactionFee(address(this), tLiquidity, currentRate);
+
         takeTransactionFee(address(_charityWallet), tCharity, currentRate);
         _reflectFee(rFee, tFee);
         emit Transfer(sender, recipient, tTransferAmount);
@@ -726,15 +670,15 @@ contract RedStar is Context, IBEP20, Ownable {
     }
 
     function _transferFromExcluded(address sender, address recipient, uint256 tAmount) private {
-        (uint256 tTransferAmount, uint256 tFee, uint256 tLiquidity, uint256 tCharity) = _getTValues(tAmount);
+        (uint256 tTransferAmount, uint256 tFee,uint256 tCharity) = _getTValues(tAmount);
         uint256 currentRate = _getRate();
-        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee) = _getRValues(tAmount, tFee, tLiquidity, tCharity, currentRate);
+        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee) = _getRValues(tAmount, tFee,tCharity, currentRate);
 
         _tOwned[sender] = _tOwned[sender].sub(tAmount);
         _rOwned[sender] = _rOwned[sender].sub(rAmount);
         _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);
         
-        takeTransactionFee(address(this), tLiquidity, currentRate);
+
         takeTransactionFee(address(_charityWallet), tCharity, currentRate);
         _reflectFee(rFee, tFee);
         emit Transfer(sender, recipient, tTransferAmount);
@@ -748,9 +692,6 @@ contract RedStar is Context, IBEP20, Ownable {
         _taxFee = taxFee;
     }
     
-    function setLiquidityFeePercent(uint256 liquidityFee) external onlyOwner {
-        _liquidityFee = liquidityFee;
-    }
 
     function setCharityFeePercent(uint256 charityFee) external onlyOwner {
         _charityFee = charityFee;
@@ -764,14 +705,6 @@ contract RedStar is Context, IBEP20, Ownable {
         _maxTxAmount = maxTxPercent;
     }
 
-    function setMinTokenBalance(uint256 minTokenBalance) external onlyOwner {
-        _minTokenBalance = minTokenBalance;
-    }
-
-    function setSwapAndLiquifyEnabled(bool _enabled) public onlyOwner {
-        swapAndLiquifyEnabled = _enabled;
-        emit SwapAndLiquifyEnabledUpdated(_enabled);
-    }
 
     function setPancakeRouter(address r) external onlyOwner {
         IPancakeV2Router02 _pancakeV2Router = IPancakeV2Router02(r);
@@ -782,14 +715,6 @@ contract RedStar is Context, IBEP20, Ownable {
         pancakeV2Pair = p;
     }
     
-    //swapLiquidity is triggered only when the contract's balance is above this threshold
-    function setThreshholdForLP(uint256 threshold) external onlyOwner {
-      _minTokenBalance = threshold * 10**_decimals;
-    }
-
-    function setExcludedFromAutoLiquidity(address a, bool b) external onlyOwner {
-        _isExcludedFromAutoLiquidity[a] = b;
-    }
 
     function isExcludedFromReward(address account) public view returns (bool) {
         return _isExcluded[account];
