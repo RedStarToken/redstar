@@ -4,7 +4,7 @@ pragma solidity ^0.8.4;
 
 /**
     RedStar
-    8% per transactions tax features:
+    8% per transaction tax breakdown:
     Holders reflection  = 4%
     Charity wallet = 4%
 */
