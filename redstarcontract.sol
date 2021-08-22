@@ -344,7 +344,7 @@ contract RedStar is Context, IBEP20, Ownable {
     mapping (address => mapping (address => uint256)) private _allowances;
 
     address[] private _excluded;
-    address payable public _charityWallet = payable(0xb55C34A47A283706E96D2F61dbf55B781690b7E5); // Charity Address
+    address payable public _charityWallet = payable(0x17929C97D3CBd94b8253527714e3d2c524cad903); // Charity Address
    
     uint256 private constant MAX = ~uint256(0);
     uint256 private _tTotal = 100 * 10**9 * 10**9;
